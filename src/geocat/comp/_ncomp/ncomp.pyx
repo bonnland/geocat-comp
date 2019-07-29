@@ -35,7 +35,6 @@ dtype_to_ncomp = {np.dtype(np.bool):       ncomp.NCOMP_BOOL,
                   np.dtype(np.float128):   ncomp.NCOMP_LONGDOUBLE,
                  }
 
-
 def get_default_fill(arr):
     if isinstance(arr, type(np.dtype)):
         dtype = arr
@@ -96,3 +95,16 @@ def _linint2(np.ndarray xi, np.ndarray yi, np.ndarray fi, np.ndarray xo, np.ndar
 #   check errors ier
 
     return fo
+
+def _mjo_cross_segment(np.ndarray x, np.ndarray y):
+    cdef ncomp.ncomp_array* ncomp_x = np_to_ncomp_array(x)
+    cdef ncomp.ncomp_array* ncomp_y = np_to_ncomp_array(y)
+    cdef ncomp.ncomp_array* ncomp_cross_spec
+
+    cdef int ier
+    with nogil:
+        ier = ncomp.mjo_cross_segment(ncomp_x, ncomp_y, &ncomp_cross_spec)
+    
+    # TODO: check error status...Can exceptions be thrown from cython?
+
+    return ncomp_to_np_array(ncomp_cross_spec)

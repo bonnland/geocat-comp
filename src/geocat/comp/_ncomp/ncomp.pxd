@@ -57,3 +57,5 @@ cdef extern from "ncomp/wrapper.h":
     int linint2(const ncomp_array*, const ncomp_array*, const ncomp_array*,
                 const ncomp_array*, const ncomp_array*, ncomp_array*,
                 int, double, int) nogil;
+
+    int mjo_cross_segment(const ncomp_array*, const ncomp_array*, ncomp_array**) nogil;
