@@ -30,6 +30,50 @@ def carrayify(f):
     return wrapper
 
 
+cdef class Array:
+    cdef ncomp.ncomp_array* ncomp_array
+    cdef np.ndarray         numpy_array
+    cdef int                ndim
+    cdef int                type
+    cdef void*              addr
+    cdef size_t*            shape
+
+    cdef ncomp.ncomp_array* np_to_ncomp_array(self):
+        return <ncomp.ncomp_array*> ncomp.ncomp_array_alloc(self.addr, self.type, self.ndim, self.shape)
+
+    cdef np.ndarray ncomp_to_np_array(self):
+        np.import_array()
+        nparr = np.PyArray_SimpleNewFromData(self.ndim, <np.npy_intp *> self.shape, self.type, self.addr)
+        cdef extern from "numpy/arrayobject.h":
+            void PyArray_ENABLEFLAGS(np.ndarray arr, int flags)
+        PyArray_ENABLEFLAGS(nparr, np.NPY_OWNDATA)
+        return nparr
+
+    @staticmethod
+    cdef Array from_np(np.ndarray nparr):
+        cdef Array a = Array.__new__(Array)
+        a.numpy_array = nparr
+        a.ndim = nparr.ndim
+        a.shape = <size_t*>nparr.shape
+        a.type = nparr.dtype.num
+        a.addr = <void*> (<unsigned long> nparr.__array_interface__['data'][0])
+        a.ncomp_array = a.np_to_ncomp_array()
+        return a
+
+    @staticmethod
+    cdef Array from_ncomp(ncomp.ncomp_array* ncarr):
+        cdef Array a = Array.__new__(Array)
+        a.ncomp_array = ncarr
+        a.ndim = ncarr.ndim
+        a.shape = ncarr.shape
+        a.type = ncarr.type
+        a.numpy_array = a.ncomp_to_np_array()
+        return a
+
+    def __dealloc__(self):
+        ncomp.ncomp_array_free(self.ncomp_array, 1)
+
+
 dtype_default_fill = {
              "DEFAULT_FILL":       ncomp.DEFAULT_FILL_DOUBLE,
              np.dtype(np.int8):    np.int8(ncomp.DEFAULT_FILL_INT8),
@@ -99,11 +143,10 @@ def get_ncomp_type(arr):
 
 
 cdef ncomp.ncomp_array* np_to_ncomp_array(np.ndarray nparr):
-    cdef long long_addr = nparr.__array_interface__['data'][0]
-    cdef void* addr = <void*> long_addr
+    cdef int np_type = nparr.dtype.num
+    cdef void* addr = <void*> (<unsigned long> nparr.__array_interface__['data'][0])
     cdef int ndim = nparr.ndim
     cdef size_t* shape = <size_t*> nparr.shape
-    cdef int np_type = nparr.dtype.num
     return <ncomp.ncomp_array*> ncomp.ncomp_array_alloc(addr, np_type, ndim, shape)
 
 
@@ -148,7 +191,7 @@ cdef set_ncomp_msg(ncomp.ncomp_missing* ncomp_msg, num):
         ncomp_msg.msg_longdouble = ncomp_to_dtype[ncomp_type](num)
 
 @carrayify
-def _linint2(np.ndarray xi, np.ndarray yi, np.ndarray fi, np.ndarray xo, np.ndarray yo, int icycx, msg=None):
+def _linint2(np.ndarray xi_np, np.ndarray yi_np, np.ndarray fi_np, np.ndarray xo_np, np.ndarray yo_np, int icycx, msg=None):
     """_linint2(xi, yi, fi, xo, yo, icycx, msg=None)
 
     Interpolates a regular grid to a rectilinear one using bi-linear
@@ -254,42 +297,43 @@ def _linint2(np.ndarray xi, np.ndarray yi, np.ndarray fi, np.ndarray xo, np.ndar
 
     """
 
-    cdef ncomp.ncomp_array* ncomp_xi = np_to_ncomp_array(xi)
-    cdef ncomp.ncomp_array* ncomp_yi = np_to_ncomp_array(yi)
-    cdef ncomp.ncomp_array* ncomp_fi = np_to_ncomp_array(fi)
-    cdef ncomp.ncomp_array* ncomp_xo = np_to_ncomp_array(xo)
-    cdef ncomp.ncomp_array* ncomp_yo = np_to_ncomp_array(yo)
-    cdef ncomp.ncomp_array* ncomp_fo
+    xi = Array.from_np(xi_np)
+    yi = Array.from_np(yi_np)
+    fi = Array.from_np(fi_np)
+    xo = Array.from_np(xo_np)
+    yo = Array.from_np(yo_np)
+
+
     cdef int iopt = 0
     cdef long i
-    if ncomp_fi.type == ncomp.NCOMP_DOUBLE:
+    if fi.type == ncomp.NCOMP_DOUBLE:
         fo_dtype = np.float64
     else:
         fo_dtype = np.float32
-    cdef np.ndarray fo = np.zeros(tuple([fi.shape[i] for i in range(fi.ndim - 2)] + [yo.shape[0], xo.shape[0]]), dtype=fo_dtype)
+    cdef np.ndarray fo_np = np.zeros(tuple([fi.shape[i] for i in range(fi.ndim - 2)] + [yo.shape[0], xo.shape[0]]), dtype=fo_dtype)
 
     missing_inds_fi = None
 
     if msg is None or np.isnan(msg): # if no missing value specified, assume NaNs
-        missing_inds_fi = np.isnan(fi)
-        msg = get_default_fill(fi)
+        missing_inds_fi = np.isnan(fi.numpy_array)
+        msg = get_default_fill(fi.numpy_array)
     else:
-        missing_inds_fi = (fi == msg)
+        missing_inds_fi = (fi.numpy_array == msg)
 
-    set_ncomp_msg(&ncomp_fi.msg, msg) # always set missing on ncomp_fi
+    set_ncomp_msg(&(fi.ncomp_array.msg), msg) # always set missing on fi.ncomp_array
 
     if missing_inds_fi.any():
-        ncomp_fi.has_missing = 1
-        fi[missing_inds_fi] = msg
+        fi.ncomp_array.has_missing = 1
+        fi.numpy_array[missing_inds_fi] = msg
 
-    ncomp_fo = np_to_ncomp_array(fo)
+    fo = Array.from_np(fo_np)
 
 #   release global interpreter lock
     cdef int ier
     with nogil:
         ier = ncomp.linint2(
-            ncomp_xi, ncomp_yi, ncomp_fi,
-            ncomp_xo, ncomp_yo, ncomp_fo,
+            xi.ncomp_array, yi.ncomp_array, fi.ncomp_array,
+            xo.ncomp_array, yo.ncomp_array, fo.ncomp_array,
             icycx, iopt)
 #   re-acquire interpreter lock
 #   check errors ier
@@ -298,13 +342,13 @@ def _linint2(np.ndarray xi, np.ndarray yi, np.ndarray fi, np.ndarray xo, np.ndar
                       NcompWarning)
 
     if missing_inds_fi is not None and missing_inds_fi.any():
-        fi[missing_inds_fi] = np.nan
+        fi.numpy_array[missing_inds_fi] = np.nan
 
-    if ncomp_fo.type == ncomp.NCOMP_DOUBLE:
-        fo_msg = ncomp_fo.msg.msg_double
+    if fo.type == ncomp.NCOMP_DOUBLE:
+        fo_msg = fo.ncomp_array.msg.msg_double
     else:
-        fo_msg = ncomp_fo.msg.msg_float
+        fo_msg = fo.ncomp_array.msg.msg_float
 
-    fo[fo == fo_msg] = np.nan
+    fo.numpy_array[fo.numpy_array == fo_msg] = np.nan
 
-    return fo
+    return fo.numpy_array
