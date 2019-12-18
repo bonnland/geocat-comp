@@ -102,7 +102,7 @@ class Test_linint2_int64(ut.TestCase):
 
     def test_linint2_msg_int64(self):
         fi_np_copy = (fi_np * 100).astype(np.int64)
-        fi = xr.DataArray(fi_np, dims=['time', 'level', 'lat', 'lon'], coords={'lat': yi, 'lon': xi}).chunk(chunks)
+        fi = xr.DataArray(fi_np_copy, dims=['time', 'level', 'lat', 'lon'], coords={'lat': yi, 'lon': xi}).chunk(chunks)
         fo = geocat.comp.linint2(fi, xo, yo, 0, msg=fi_np_copy[0,0,0,0])
         np.testing.assert_array_equal(fi.values, fo[..., ::2, ::2].values)
 
