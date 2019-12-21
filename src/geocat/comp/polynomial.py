@@ -114,11 +114,11 @@ def ndpolyfit(x: Iterable, y: Iterable, deg: int, axis: int = 0, **kwargs) -> (x
     Returns:
         an `xarray.DataArray` or `numpy.ndarray` containing the coefficients of the fitted polynomial.
     """
-
+    domain = kwargs.get("domain", None)
     rcond = kwargs.get("rcond", None)
     full = kwargs.get("full", False)
     w = kwargs.get("w", None)
-    cov = kwargs.get("cov", False)
+    window = kwargs.get("window", None)
     missing_value = _get_missing_value(y, kwargs)
     meta = kwargs.get("meta", True)
 
@@ -129,9 +129,9 @@ def ndpolyfit(x: Iterable, y: Iterable, deg: int, axis: int = 0, **kwargs) -> (x
         x = np.asarray(x)
 
     if isinstance(y, np.ndarray):
-        return _ndpolyfit(x, y, axis, deg, rcond, full, w, cov, missing_value)
+        return _ndpolyfit(x, y, axis, deg, domain, rcond, full, w, window, missing_value)
     if isinstance(y, xr.DataArray):
-        output = _ndpolyfit(x, y.data, axis, deg, rcond, full, w, cov, missing_value)
+        output = _ndpolyfit(x, y.data, axis, deg, domain, rcond, full, w, window, missing_value)
         attrs = output.attrs
 
         if meta:
@@ -152,11 +152,11 @@ def ndpolyfit(x: Iterable, y: Iterable, deg: int, axis: int = 0, **kwargs) -> (x
         y = _unchunk_ifneeded(y, axis)
 
         return y.map_blocks(
-            lambda b: _ndpolyfit(x, b, axis, deg, rcond, full, w, cov, missing_value, False),
+            lambda b: _ndpolyfit(x, b, axis, deg, domain, rcond, full, w, window, missing_value, False),
             dtype=np.float64
         ).compute()
     else:
-        return _ndpolyfit(np.asarray(y), x, axis, deg, rcond, full, w, cov, missing_value)
+        return _ndpolyfit(np.asarray(y), x, axis, deg, domain, rcond, full, w, window, missing_value)
 
 
 def _ndpolyfit(
@@ -164,10 +164,11 @@ def _ndpolyfit(
         y: np.ndarray,
         axis: int = 0,
         deg: int = 1,
+        domain=None,
         rcond=None,
         full=False,
         w=None,
-        cov=False,
+        window=None,
         missing_value=np.nan,
         xarray_output=True) -> (np.ndarray, xr.DataArray):
 
@@ -271,7 +272,7 @@ def _ndpolyfit(
         for c in range(y_rearranged.shape[1]):
             idx = np.logical_not(mask[:, c])
             tmp_results.append(
-                np.polyfit(
+                np.polynomial.Polynomial.fit(
                     x[idx], y_rearranged[idx, c],
                     deg=deg,
                     rcond=rcond,
@@ -281,7 +282,7 @@ def _ndpolyfit(
                 )
             )
 
-        polyfit_output = tmp_results[0].reshape((-1, 1)) \
+        polyfit_output = tmp_results[0].coef.reshape((-1, 1)) \
             if isinstance(tmp_results[0], np.ndarray) \
             else tmp_results[0][0].reshape((-1, 1))
         for i in range(1, y_rearranged.shape[1]):
@@ -296,17 +297,20 @@ def _ndpolyfit(
             )
 
     else:
-        polyfit_output = np.polyfit(
+        polyfit_output = np.polynomial.Polynomial.fit(
             x, y_rearranged,
             deg=deg,
+            domain=domain,
             rcond=rcond,
             full=full,
             w=w,
-            cov=cov
+            window=window
         )
 
     p = _reverse_rearrange_axis(
-        (polyfit_output if isinstance(polyfit_output, np.ndarray) else polyfit_output[0]),
+        polyfit_output.convert().coef
+            if isinstance(polyfit_output, np.polynomial.Polynomial)
+            else polyfit_output[0].convert().coef,
         axis,
         trailing_shape
     )
@@ -314,20 +318,18 @@ def _ndpolyfit(
     if bool(xarray_output):
         attrs = {
             "deg": deg,
+            "domain": domain,
             "provided_rcond": rcond,
             "full": full,
             "weights": w,
-            "covariance": cov
+            "window": window
         }
 
-        if not has_missing:
-            if full:  # full == True
-                attrs["residuals"] = polyfit_output[1]
-                attrs["rank"] = polyfit_output[2]
-                attrs["singular_values"] = polyfit_output[3]
-                attrs["rcond"] = polyfit_output[4]
-            elif cov:  # (full == False) and (cov == True)
-                attrs["V"] = polyfit_output[1]
+        if (not has_missing) and full:
+            attrs["residuals"] = polyfit_output[1]
+            attrs["rank"] = polyfit_output[2]
+            attrs["sv"] = polyfit_output[3]
+            attrs["rcond"] = polyfit_output[4]
 
         return xr.DataArray(
             p,
@@ -370,7 +372,7 @@ def _rearrange_axis(data: np.ndarray, axis: int = 0) -> tuple:
 
     trailing_shape = data.shape[1:]
 
-    data = data.reshape((data.shape[0], -1))
+    data = data.reshape((data.shape[0], )) if np.prod(trailing_shape) == 1 else data.reshape((data.shape[0], -1))
 
     return data, trailing_shape
 

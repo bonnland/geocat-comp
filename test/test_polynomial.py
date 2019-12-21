@@ -13,7 +13,7 @@ class test_internal_ndpolyfit(TestCase):
 
         p = _ndpolyfit(x, y)
 
-        np.testing.assert_almost_equal(p, [1.0, 0.0])
+        np.testing.assert_almost_equal(p, [0.0, 1.0])
 
     def test_02(self):
         x = np.arange(10).astype(dtype=np.float).reshape((-1, 1))
@@ -21,7 +21,7 @@ class test_internal_ndpolyfit(TestCase):
 
         p = _ndpolyfit(x, y)
 
-        np.testing.assert_almost_equal(p, [1.0, 0.0])
+        np.testing.assert_almost_equal(p, [0.0, 1.0])
 
     def test_03(self):
         x = np.arange(10).astype(dtype=np.float).reshape((1, -1))
@@ -29,7 +29,7 @@ class test_internal_ndpolyfit(TestCase):
 
         p = _ndpolyfit(x, y)
 
-        np.testing.assert_almost_equal(p, [1.0, 0.0])
+        np.testing.assert_almost_equal(p, [0.0, 1.0])
 
     def test_04(self):
         x = np.arange(10).astype(dtype=np.float).reshape((2, 5))
@@ -42,10 +42,10 @@ class test_internal_ndpolyfit(TestCase):
         x = np.arange(10).astype(dtype=np.float)
         for i in range(50):
             expected_p = np.random.randint(-10, 10, size=2)
-            while expected_p[0] == 0:
+            while expected_p[-1] == 0:
                 expected_p = np.random.randint(-10, 10, size=2)
 
-            y = expected_p[0] * x + expected_p[1]
+            y = expected_p[0] + expected_p[1] * x
 
             actual_p = _ndpolyfit(x, y)
 
@@ -59,7 +59,7 @@ class test_internal_ndpolyfit(TestCase):
 
         actual_p = _ndpolyfit(x, y)
 
-        expected_p = np.moveaxis(np.tile(np.asarray([1.0, 0.0]), (4, 3, 1)), 2, 0)
+        expected_p = np.moveaxis(np.tile(np.asarray([0.0, 1.0]), (4, 3, 1)), 2, 0)
 
         np.testing.assert_almost_equal(actual_p, expected_p)
 
